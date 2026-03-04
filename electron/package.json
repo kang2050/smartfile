@@ -1,0 +1,73 @@
+{
+  "name": "smartfile",
+  "version": "1.0.0",
+  "description": "SmartFile - 基于语义理解的本地资产自动化归档助手",
+  "author": "SmartFile Team",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "dev": "NODE_ENV=development electron .",
+    "build:frontend": "cd .. && pnpm run build",
+    "build:mac": "npm run build:frontend && electron-builder --mac",
+    "build:mac-arm64": "npm run build:frontend && electron-builder --mac --arm64",
+    "build:mac-x64": "npm run build:frontend && electron-builder --mac --x64",
+    "build:mac-universal": "npm run build:frontend && electron-builder --mac --universal",
+    "build:dmg": "npm run build:frontend && electron-builder --mac dmg",
+    "pack": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.smartfile.app",
+    "productName": "SmartFile",
+    "copyright": "Copyright © 2024 SmartFile",
+    "directories": {
+      "output": "../release",
+      "buildResources": "../build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../dist/public/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "icon": "../build/icon.png",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "../build/entitlements.mac.plist",
+      "entitlementsInherit": "../build/entitlements.mac.plist",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "sign": false
+    },
+    "dmg": {
+      "title": "SmartFile",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "extraMetadata": {
+      "main": "main.js"
+    }
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "@types/pdf-parse": "^1.1.1"
+  }
+}

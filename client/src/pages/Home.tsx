@@ -616,31 +616,27 @@ function DownloadSection() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <a
-                href="https://github.com/kang2050/smartfile/releases/download/v1.0.0/SmartFile-1.0.0-arm64.dmg"
-                download
+              <Button
+                size="lg"
+                className="h-13 px-8 text-[14px] font-medium gap-2.5 rounded-xl bg-background text-foreground hover:bg-background/90"
+                onClick={() => toast("下载功能即将上线", { description: "SmartFile 正在积极开发中，敬请期待！" })}
               >
-                <Button
-                  size="lg"
-                  className="h-13 px-8 text-[14px] font-medium gap-2.5 rounded-xl bg-background text-foreground hover:bg-background/90 w-full"
-                >
-                  <Apple className="w-4.5 h-4.5" />
-                  下载 Apple Silicon 版
-                </Button>
-              </a>
+                <Apple className="w-4.5 h-4.5" />
+                下载 Apple Silicon 版
+              </Button>
               <Button
                 variant="outline"
                 size="lg"
                 className="h-13 px-8 text-[14px] font-medium gap-2.5 rounded-xl border-background/20 text-background hover:bg-background/10 bg-transparent"
-                onClick={() => toast("Intel 版即将上线", { description: "目前仅支持 Apple Silicon（M1/M2/M3），Intel 版敬请期待。" })}
+                onClick={() => toast("下载功能即将上线", { description: "SmartFile 正在积极开发中，敬请期待！" })}
               >
                 <Download className="w-4.5 h-4.5" />
-                下载 Intel 版（即将上线）
+                下载 Intel 版
               </Button>
             </div>
 
             <div className="flex items-center justify-center gap-6 mt-8">
-              <a href="https://github.com/kang2050/smartfile" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[13px] text-background/50 hover:text-background/80 transition-colors">
+              <a href="#" className="flex items-center gap-1.5 text-[13px] text-background/50 hover:text-background/80 transition-colors">
                 <Github className="w-3.5 h-3.5" />
                 GitHub
                 <ArrowUpRight className="w-3 h-3" />

@@ -39,6 +39,13 @@ contextBridge.exposeInMainWorld("smartfile", {
     analyzeWithCustomRule: (fileInfo, rule, modelConfig) => ipcRenderer.invoke("ai:analyzeWithCustomRule", fileInfo, rule, modelConfig),
   },
 
+  // 设置
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    save: (settings) => ipcRenderer.invoke("settings:save", settings),
+    testApiKey: (apiKey, provider) => ipcRenderer.invoke("settings:testApiKey", apiKey, provider),
+  },
+
   // 菜单事件监听（从主进程接收菜单操作）
   onMenuAction: (channel, callback) => {
     const validChannels = ["navigate", "open-folder", "start-analysis", "confirm-all"];

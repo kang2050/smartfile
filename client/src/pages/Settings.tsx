@@ -34,7 +34,11 @@ import {
   Monitor,
   Globe,
   Info,
+  Key,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { getSettings, saveSettings, testApiKey, type AppSettings, DEFAULT_SETTINGS } from "@/lib/smartfile-api";
 
 // macOS window traffic lights
 function TrafficLights() {
@@ -170,8 +174,33 @@ export default function SettingsPage() {
   const [dateFormat, setDateFormat] = useState("YYYY-MM-DD");
   const [language, setLanguage] = useState("zh");
 
+  // API 模式设置
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
+  const [testingKey, setTestingKey] = useState(false);
+
+  useEffect(() => {
+    getSettings().then(setAppSettings);
+  }, []);
+
+  const handleSaveSettings = async (newSettings: AppSettings) => {
+    setAppSettings(newSettings);
+    await saveSettings(newSettings);
+    toast.success("设置已保存");
+  };
+
+  const handleTestApiKey = async () => {
+    const key = appSettings[`${appSettings.aiProvider}ApiKey` as keyof AppSettings] as string;
+    if (!key) { toast.error("请先填写 API Key"); return; }
+    setTestingKey(true);
+    const result = await testApiKey(key, appSettings.aiProvider);
+    setTestingKey(false);
+    result.success ? toast.success("API Key 验证成功") : toast.error("API Key 无效，请检查");
+  };
+
   const tabs = [
-    { id: "models", label: "模型管理", icon: Brain },
+    { id: "ai", label: "AI 模式", icon: Key },
+    { id: "models", label: "本地模型", icon: Brain },
     { id: "general", label: "通用设置", icon: Settings },
     { id: "system", label: "系统信息", icon: Monitor },
     { id: "about", label: "关于", icon: Info },
@@ -215,6 +244,113 @@ export default function SettingsPage() {
         {/* Content */}
         <ScrollArea className="flex-1">
           <div className="max-w-2xl mx-auto p-8">
+            {activeTab === "ai" && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                <h2 className="text-[16px] font-semibold tracking-[-0.02em] mb-1">AI 命名模式</h2>
+                <p className="text-[13px] text-muted-foreground mb-6">选择使用本地 Ollama 还是云端 API 进行文件命名。API 模式无需强劲电脑，按量计费。</p>
+
+                {/* 模式选择 */}
+                <div className="grid grid-cols-2 gap-3 mb-8">
+                  {[
+                    { id: "local", label: "本地模式", desc: "使用 Ollama，数据不上传，需要较好的电脑", icon: Shield },
+                    { id: "api", label: "API 模式", desc: "调用云端 AI，任何电脑可用，按次计费", icon: Globe },
+                  ].map((mode) => (
+                    <button
+                      key={mode.id}
+                      onClick={() => handleSaveSettings({ ...appSettings, aiMode: mode.id as "local" | "api" })}
+                      className={`p-4 rounded-lg border text-left transition-all ${
+                        appSettings.aiMode === mode.id
+                          ? "border-foreground/30 bg-foreground/[0.04]"
+                          : "border-border hover:border-foreground/15"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <mode.icon className="w-4 h-4" strokeWidth={1.5} />
+                        <span className="text-[13px] font-medium">{mode.label}</span>
+                        {appSettings.aiMode === mode.id && <Check className="w-3.5 h-3.5 ml-auto text-foreground" />}
+                      </div>
+                      <p className="text-[12px] text-muted-foreground">{mode.desc}</p>
+                    </button>
+                  ))}
+                </div>
+
+                {/* API Provider 选择 */}
+                {appSettings.aiMode === "api" && (
+                  <div>
+                    <h3 className="text-[14px] font-medium mb-3">选择 AI 服务商</h3>
+                    <div className="grid grid-cols-2 gap-2 mb-6">
+                      {[
+                        { id: "claude", label: "Claude", desc: "Anthropic 出品，理解能力强", badge: "推荐" },
+                        { id: "openai", label: "OpenAI", desc: "GPT-4o mini，使用最广泛" },
+                        { id: "deepseek", label: "DeepSeek", desc: "国产，价格极低，性能优秀" },
+                        { id: "qwen", label: "通义千问", desc: "阿里云出品，中文理解强" },
+                      ].map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => handleSaveSettings({ ...appSettings, aiProvider: p.id as AppSettings["aiProvider"] })}
+                          className={`p-3 rounded-lg border text-left transition-all ${
+                            appSettings.aiProvider === p.id
+                              ? "border-foreground/30 bg-foreground/[0.04]"
+                              : "border-border hover:border-foreground/15"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[13px] font-medium">{p.label}</span>
+                            {p.badge && <span className="text-[9px] px-1.5 py-0.5 bg-foreground text-background rounded font-medium">{p.badge}</span>}
+                            {appSettings.aiProvider === p.id && <Check className="w-3 h-3 ml-auto" />}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{p.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* API Key 输入 */}
+                    <h3 className="text-[14px] font-medium mb-3">API Key</h3>
+                    {[
+                      { provider: "claude", label: "Claude API Key", placeholder: "sk-ant-api03-..." },
+                      { provider: "openai", label: "OpenAI API Key", placeholder: "sk-proj-..." },
+                      { provider: "deepseek", label: "DeepSeek API Key", placeholder: "sk-..." },
+                      { provider: "qwen", label: "通义千问 API Key", placeholder: "sk-..." },
+                    ].filter((item) => item.provider === appSettings.aiProvider).map((item) => {
+                      const keyField = `${item.provider}ApiKey` as keyof AppSettings;
+                      return (
+                        <div key={item.provider} className="mb-4">
+                          <label className="text-[12px] text-muted-foreground mb-1.5 block">{item.label}</label>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <input
+                                type={showApiKey[item.provider] ? "text" : "password"}
+                                value={appSettings[keyField] as string}
+                                onChange={(e) => setAppSettings({ ...appSettings, [keyField]: e.target.value })}
+                                onBlur={() => saveSettings(appSettings)}
+                                placeholder={item.placeholder}
+                                className="w-full h-9 px-3 pr-9 text-[13px] bg-background border border-border rounded-md font-mono focus:outline-none focus:border-foreground/30"
+                              />
+                              <button
+                                onClick={() => setShowApiKey({ ...showApiKey, [item.provider]: !showApiKey[item.provider] })}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              >
+                                {showApiKey[item.provider] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 text-[12px] px-3 shrink-0"
+                              onClick={handleTestApiKey}
+                              disabled={testingKey}
+                            >
+                              {testingKey ? <Loader2 className="w-3 h-3 animate-spin" /> : "测试连接"}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
             {activeTab === "models" && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 {/* Ollama Status */}

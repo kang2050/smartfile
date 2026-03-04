@@ -29,6 +29,162 @@ const isDev = process.env.NODE_ENV === "development";
 
 // Ollama 配置
 const OLLAMA_BASE_URL = "http://localhost:11434";
+const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
+
+// ============================================================
+// 设置存储
+// ============================================================
+
+function getSettingsPath() {
+  const userDataDir = path.join(os.homedir(), ".smartfile");
+  if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+  return path.join(userDataDir, "settings.json");
+}
+
+function loadSettings() {
+  try {
+    const data = fs.readFileSync(getSettingsPath(), "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return { aiMode: "local", claudeApiKey: "" };
+  }
+}
+
+function saveSettings(settings) {
+  fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), "utf-8");
+}
+
+ipcMain.handle("settings:get", () => loadSettings());
+ipcMain.handle("settings:save", (event, settings) => {
+  saveSettings(settings);
+  return { success: true };
+});
+ipcMain.handle("settings:testApiKey", async (event, apiKey, provider = "claude") => {
+  try {
+    const cfg = getProviderConfig(provider, apiKey);
+    const res = await fetch(cfg.url, {
+      method: "POST",
+      headers: cfg.headers,
+      body: JSON.stringify({ ...cfg.baseBody, max_tokens: 10, messages: [{ role: "user", content: "hi" }] }),
+    });
+    return { success: res.ok };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ============================================================
+// 多 Provider API 配置
+// ============================================================
+
+function getProviderConfig(provider, apiKey) {
+  const configs = {
+    claude: {
+      url: "https://api.anthropic.com/v1/messages",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      baseBody: { model: "claude-haiku-4-5-20251001" },
+      parseResponse: (data) => data.content[0].text,
+    },
+    openai: {
+      url: "https://api.openai.com/v1/chat/completions",
+      headers: { "Authorization": `Bearer ${apiKey}`, "content-type": "application/json" },
+      baseBody: { model: "gpt-4o-mini" },
+      parseResponse: (data) => data.choices[0].message.content,
+    },
+    deepseek: {
+      url: "https://api.deepseek.com/v1/chat/completions",
+      headers: { "Authorization": `Bearer ${apiKey}`, "content-type": "application/json" },
+      baseBody: { model: "deepseek-chat" },
+      parseResponse: (data) => data.choices[0].message.content,
+    },
+    qwen: {
+      url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      headers: { "Authorization": `Bearer ${apiKey}`, "content-type": "application/json" },
+      baseBody: { model: "qwen-turbo" },
+      parseResponse: (data) => data.choices[0].message.content,
+    },
+  };
+  return configs[provider] || configs.claude;
+}
+
+async function callApiText(prompt, provider, apiKey) {
+  const cfg = getProviderConfig(provider, apiKey);
+  const res = await fetch(cfg.url, {
+    method: "POST",
+    headers: cfg.headers,
+    body: JSON.stringify({ ...cfg.baseBody, max_tokens: 200, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new Error(`${provider} API 错误: ${res.status}`);
+  const data = await res.json();
+  return cfg.parseResponse(data);
+}
+
+async function callApiVision(base64Image, mediaType, prompt, provider, apiKey) {
+  const cfg = getProviderConfig(provider, apiKey);
+  let messages;
+  if (provider === "claude") {
+    messages = [{ role: "user", content: [
+      { type: "image", source: { type: "base64", media_type: mediaType, data: base64Image } },
+      { type: "text", text: prompt },
+    ]}];
+  } else {
+    // OpenAI 兼容格式（OpenAI/DeepSeek/Qwen 均支持）
+    messages = [{ role: "user", content: [
+      { type: "image_url", image_url: { url: `data:${mediaType};base64,${base64Image}` } },
+      { type: "text", text: prompt },
+    ]}];
+  }
+  const res = await fetch(cfg.url, {
+    method: "POST",
+    headers: cfg.headers,
+    body: JSON.stringify({ ...cfg.baseBody, max_tokens: 200, messages }),
+  });
+  if (!res.ok) throw new Error(`${provider} API 错误: ${res.status}`);
+  const data = await res.json();
+  return cfg.parseResponse(data);
+}
+
+function parseJsonResult(text) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("返回格式错误");
+  return JSON.parse(match[0]);
+}
+
+async function analyzeWithApiVision(base64Image, originalName, date, ext, provider, apiKey) {
+  const prompt = `你是一个智能文件归档助手。请分析这张图片，为它生成语义化文件名。
+原始文件名：${originalName}，文件日期：${date}
+命名规则：日期_中文描述.扩展名，描述不超过15个字，保留扩展名。
+只返回JSON：{"newName":"新文件名","folder":"归档目录","summary":"一句话描述","confidence":85}`;
+
+  const mediaType = `image/${ext.replace(".", "").replace("jpg", "jpeg")}`;
+  const text = await callApiVision(base64Image, mediaType, prompt, provider, apiKey);
+  const result = parseJsonResult(text);
+  return {
+    newName: result.newName,
+    folder: result.folder || "照片",
+    confidence: Math.min(100, Math.max(0, result.confidence || 85)),
+    summary: result.summary || "图片内容已分析",
+  };
+}
+
+async function analyzeWithApiText(textContent, originalName, date, ext, provider, apiKey) {
+  const contentHint = textContent ? `\n文件内容：\n${textContent.substring(0, 2000)}` : "";
+  const prompt = `你是一个智能文件归档助手。为文件生成语义化文件名。
+原始文件名：${originalName}，日期：${date}，类型：${ext}${contentHint}
+命名规则：日期_中文描述.扩展名，描述不超过15个字，保留扩展名。
+只返回JSON：{"newName":"新文件名","folder":"归档目录","summary":"一句话描述","confidence":85}`;
+
+  const text = await callApiText(prompt, provider, apiKey);
+  const result = parseJsonResult(text);
+  return {
+    newName: result.newName,
+    folder: result.folder || "文档",
+    confidence: Math.min(100, Math.max(0, result.confidence || 85)),
+    summary: result.summary || "文件已分析",
+    extractedText: textContent ? textContent.substring(0, 3000) : undefined,
+  };
+}
 
 // ============================================================
 // macOS 原生菜单
@@ -594,57 +750,39 @@ ipcMain.handle("ai:analyzeFile", async (event, fileInfo, modelConfig) => {
   try {
     const { path: filePath, type, originalName, ext, date } = fileInfo;
     const { textModel, visionModel } = modelConfig;
+    const settings = loadSettings();
+    const useApi = settings.aiMode === "api" && settings.claudeApiKey;
 
     let analysisResult;
 
-    if (type === "image" && visionModel) {
-      // 图片文件 - 使用视觉模型
+    const provider = settings.aiProvider || "claude";
+    const apiKey = settings[`${provider}ApiKey`] || "";
+
+    if (type === "image") {
       const stats = fs.statSync(filePath);
-      if (stats.size > 20 * 1024 * 1024) {
-        // 超过 20MB 的图片，仅用文件名分析
-        analysisResult = await analyzeWithText(
-          "",
-          originalName,
-          date,
-          ext,
-          textModel
-        );
+      const base64 = stats.size <= 20 * 1024 * 1024 ? fs.readFileSync(filePath).toString("base64") : null;
+      if (useApi) {
+        analysisResult = base64
+          ? await analyzeWithApiVision(base64, originalName, date, ext, provider, apiKey)
+          : await analyzeWithApiText("", originalName, date, ext, provider, apiKey);
       } else {
-        const base64 = fs.readFileSync(filePath).toString("base64");
-        analysisResult = await analyzeWithVision(
-          base64,
-          originalName,
-          date,
-          visionModel
-        );
+        analysisResult = base64
+          ? await analyzeWithVision(base64, originalName, date, visionModel)
+          : await analyzeWithText("", originalName, date, ext, textModel);
       }
     } else if (type === "document") {
-      // 文档文件 - 读取文本内容
       const textContent = await readDocumentText(filePath, ext);
-      analysisResult = await analyzeWithText(
-        textContent,
-        originalName,
-        date,
-        ext,
-        textModel
-      );
+      analysisResult = useApi
+        ? await analyzeWithApiText(textContent, originalName, date, ext, provider, apiKey)
+        : await analyzeWithText(textContent, originalName, date, ext, textModel);
     } else if (type === "audio") {
-      // 音频文件 - 基于文件名和元数据分析
-      analysisResult = await analyzeAudioMeta(
-        originalName,
-        date,
-        ext,
-        textModel
-      );
+      analysisResult = useApi
+        ? await analyzeWithApiText("", originalName, date, ext, provider, apiKey)
+        : await analyzeAudioMeta(originalName, date, ext, textModel);
     } else {
-      // 其他文件 - 基于文件名分析
-      analysisResult = await analyzeWithText(
-        "",
-        originalName,
-        date,
-        ext,
-        textModel
-      );
+      analysisResult = useApi
+        ? await analyzeWithApiText("", originalName, date, ext, provider, apiKey)
+        : await analyzeWithText("", originalName, date, ext, textModel);
     }
 
     return analysisResult;

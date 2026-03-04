@@ -10,6 +10,49 @@ export const isElectron = typeof window !== "undefined" && !!(window as any).sma
 const OLLAMA_BASE = "http://localhost:11434";
 
 // ============================================================
+// 设置
+// ============================================================
+
+export interface AppSettings {
+  aiMode: "local" | "api";
+  aiProvider: "claude" | "openai" | "deepseek" | "qwen";
+  claudeApiKey: string;
+  openaiApiKey: string;
+  deepseekApiKey: string;
+  qwenApiKey: string;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  aiMode: "local",
+  aiProvider: "claude",
+  claudeApiKey: "",
+  openaiApiKey: "",
+  deepseekApiKey: "",
+  qwenApiKey: "",
+};
+
+export async function getSettings(): Promise<AppSettings> {
+  if (isElectron) {
+    const saved = await (window as any).smartfile.settings.get();
+    return { ...DEFAULT_SETTINGS, ...saved };
+  }
+  return DEFAULT_SETTINGS;
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  if (isElectron) {
+    await (window as any).smartfile.settings.save(settings);
+  }
+}
+
+export async function testApiKey(apiKey: string, provider = "claude"): Promise<{ success: boolean; error?: string }> {
+  if (isElectron) {
+    return (window as any).smartfile.settings.testApiKey(apiKey, provider);
+  }
+  return { success: false };
+}
+
+// ============================================================
 // 类型定义
 // ============================================================
 
